@@ -13,7 +13,7 @@ API_TOKEN = '7966505221:AAHEUj82be8yTNnmfKhbpTz9CqiSR75SAx4' # O'zingizning haqi
 DB_NAME = 'bot.db'
 
 # --- ADMINLAR VA KANALLAR ---
-ADMINS = [8165064673,8134296521,6881871621,7035569750,8132410053] # Bosh admin ID'si (Bu joyga o'z ID'ingizni kiriting)
+ADMINS = [8165064673, 8134296521, 6881871621, 7035569750, 8132410053, 7126069858] # Bosh admin ID'si (Bu joyga o'z ID'ingizni kiriting)
 CHANNELS = [
     '@tarjimakinolar_bizda',  # Haqiqiy kanal username'laringizni yozing!
     # '@kanal_username_2'
@@ -45,22 +45,21 @@ import sqlite3
 import time
 
 class Database:
-    """SQLite bilan ishlash uchun sinf"""
+    """SQLite bilan ishlash uchun barcha funksiyalar jamlangan to'liq sinf"""
     def __init__(self, db_file):
         self.conn = sqlite3.connect(db_file, check_same_thread=False) 
         self.cursor = self.conn.cursor()
         self.setup()
 
     def setup(self):
-        # Adminlar jadvali (username qo'shilgan)
+        # Adminlar jadvali
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS admins (
                 user_id INTEGER PRIMARY KEY,
                 username TEXT
             )
         """)
-
-        # Foydalanuvchilar jadvali (Statistika va Reklama uchun)
+        # Foydalanuvchilar jadvali
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
@@ -68,7 +67,6 @@ class Database:
                 last_active REAL DEFAULT (strftime('%s','now'))
             )
         """)
-
         # Kinolar jadvali
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS films (
@@ -77,66 +75,65 @@ class Database:
                 caption TEXT
             )
         """)
+        # Drama jadvallari
+        self.cursor.execute("CREATE TABLE IF NOT EXISTS dramas (code TEXT PRIMARY KEY, caption TEXT, photo_id TEXT)")
+        self.cursor.execute("CREATE TABLE IF NOT EXISTS drama_episodes (id INTEGER PRIMARY KEY AUTOINCREMENT, drama_code TEXT, episode_number INTEGER, file_id TEXT)")
+        
+        # Multfilm jadvallari
+        self.cursor.execute("CREATE TABLE IF NOT EXISTS cartoons (code TEXT PRIMARY KEY, caption TEXT, photo_id TEXT)")
+        self.cursor.execute("CREATE TABLE IF NOT EXISTS cartoon_episodes (id INTEGER PRIMARY KEY AUTOINCREMENT, cartoon_code TEXT, episode_number INTEGER, file_id TEXT)")
+        
+        # Anime jadvallari
+        self.cursor.execute("CREATE TABLE IF NOT EXISTS animes (code TEXT PRIMARY KEY, caption TEXT, photo_id TEXT)")
+        self.cursor.execute("CREATE TABLE IF NOT EXISTS anime_episodes (id INTEGER PRIMARY KEY AUTOINCREMENT, anime_code TEXT, episode_number INTEGER, file_id TEXT)")
+        
+        self.conn.commit()
 
-        # Drama
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS dramas (
-                code TEXT PRIMARY KEY,
-                caption TEXT,
-                photo_id TEXT
-            )
-        """)
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS drama_episodes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                drama_code TEXT,
-                episode_number INTEGER,
-                file_id TEXT
-            )
-        """)
+    # --- KINO / DRAMA / MULTFILM QIDIRISH (Kino yuborish uchun) ---
+    def get_film(self, code):
+        self.cursor.execute("SELECT file_id, caption FROM films WHERE code = ?", (code,))
+        return self.cursor.fetchone()
 
-        # Multfilm
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS cartoons (
-                code TEXT PRIMARY KEY,
-                caption TEXT,
-                photo_id TEXT
-            )
-        """)
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS cartoon_episodes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                cartoon_code TEXT,
-                episode_number INTEGER,
-                file_id TEXT
-            )
-        """)
+    def get_drama(self, code):
+        self.cursor.execute("SELECT code, caption, photo_id FROM dramas WHERE code = ?", (code,))
+        return self.cursor.fetchone()
 
-        # Anime
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS animes (
-                code TEXT PRIMARY KEY,
-                caption TEXT,
-                photo_id TEXT
-            )
-        """)
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS anime_episodes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                anime_code TEXT,
-                episode_number INTEGER,
-                file_id TEXT
-            )
-        """)
+    def get_cartoon(self, code):
+        self.cursor.execute("SELECT code, caption, photo_id FROM cartoons WHERE code = ?", (code,))
+        return self.cursor.fetchone()
 
+    def get_anime(self, code):
+        self.cursor.execute("SELECT code, caption, photo_id FROM animes WHERE code = ?", (code,))
+        return self.cursor.fetchone()
+
+    # --- QO'SHISH FUNKSIYALARI ---
+    def add_film(self, code, file_id, caption):
+        self.cursor.execute("INSERT OR REPLACE INTO films (code, file_id, caption) VALUES (?, ?, ?)", (code, file_id, caption))
+        self.conn.commit()
+
+    # --- O'CHIRISH FUNKSIYALARI (Admin panel uchun) ---
+    def delete_film(self, code):
+        self.cursor.execute("DELETE FROM films WHERE code = ?", (code,))
+        self.conn.commit()
+
+    def delete_drama(self, code):
+        self.cursor.execute("DELETE FROM dramas WHERE code = ?", (code,))
+        self.cursor.execute("DELETE FROM drama_episodes WHERE drama_code = ?", (code,))
+        self.conn.commit()
+
+    def delete_cartoon(self, code):
+        self.cursor.execute("DELETE FROM cartoons WHERE code = ?", (code,))
+        self.cursor.execute("DELETE FROM cartoon_episodes WHERE cartoon_code = ?", (code,))
+        self.conn.commit()
+
+    def delete_anime(self, code):
+        self.cursor.execute("DELETE FROM animes WHERE code = ?", (code,))
+        self.cursor.execute("DELETE FROM anime_episodes WHERE anime_code = ?", (code,))
         self.conn.commit()
 
     # --- ADMIN AMALLARI ---
     def add_admin(self, user_id, username=None):
-        self.cursor.execute(
-            "INSERT OR IGNORE INTO admins (user_id, username) VALUES (?, ?)",
-            (user_id, username)
-        )
+        self.cursor.execute("INSERT OR IGNORE INTO admins (user_id, username) VALUES (?, ?)", (user_id, username))
         self.conn.commit()
 
     def remove_admin(self, user_id):
@@ -152,15 +149,10 @@ class Database:
         self.cursor.execute("SELECT user_id FROM admins WHERE user_id=?", (user_id,))
         return self.cursor.fetchone() is not None
 
-
-
-    # --- USERS AMALLARI ---
+    # --- USERS AMALLARI VA STATISTIKA ---
     def add_user(self, user_id):
         self.cursor.execute("INSERT OR IGNORE INTO users (user_id, is_blocked) VALUES (?,0)", (user_id,))
-        self.cursor.execute(
-            "UPDATE users SET last_active = strftime('%s','now') WHERE user_id=?",
-            (user_id,)
-        )
+        self.cursor.execute("UPDATE users SET last_active = strftime('%s','now') WHERE user_id=?", (user_id,))
         self.conn.commit()
 
     def set_user_blocked(self, user_id, is_blocked):
@@ -170,18 +162,6 @@ class Database:
     def get_all_users(self):
         self.cursor.execute("SELECT user_id FROM users")
         return [r[0] for r in self.cursor.fetchall()]
-
-    def get_blocked_users(self):
-        self.cursor.execute("SELECT user_id FROM users WHERE is_blocked=1")
-        return [r[0] for r in self.cursor.fetchall()]
-
-    def is_online(self, user_id):
-        self.cursor.execute("SELECT last_active FROM users WHERE user_id=?", (user_id,))
-        row = self.cursor.fetchone()
-        if not row:
-            return False
-        last_active = row[0]
-        return time.time() - last_active < 300  # oxirgi 5 daqiqa ichida aktiv
 
     def count_users(self):
         self.cursor.execute("SELECT COUNT(user_id) FROM users")
@@ -193,11 +173,9 @@ class Database:
 
     def count_active_users(self):
         """Oxirgi 24 soatda faol bo'lganlar"""
-        self.cursor.execute("""
-            SELECT COUNT(user_id) FROM users
-            WHERE last_active >= strftime('%s','now','-1 day')
-        """)
+        self.cursor.execute("SELECT COUNT(user_id) FROM users WHERE last_active >= strftime('%s','now','-1 day')")
         return self.cursor.fetchone()[0]
+
 
 # --- DATABASE OBYEKTI ---
 db = Database(DB_NAME)
@@ -254,6 +232,21 @@ def get_regular_admin_keyboard():
     )
     return keyboard
 
+def get_current_keyboard(user_id):
+    """Foydalanuvchi darajasiga qarab klaviaturani qaytaradi"""
+    # 1. Super Adminni tekshirish (Ro'yxatdagi birinchi ID)
+    if 'ADMINS' in globals() and len(ADMINS) > 0:
+        if int(user_id) == int(ADMINS[0]):
+            return get_super_admin_keyboard()
+        
+        # 2. Oddiy Adminlarni tekshirish (Ro'yxatning qolgan qismi)
+        admin_ids = [int(str(a)) for a in ADMINS]
+        if int(user_id) in admin_ids:
+            return get_regular_admin_keyboard()
+
+    # 3. Agar admin bo'lmasa - Foydalanuvchi menyusi
+    return get_user_keyboard()
+
 # --- BEKOR QILISH KLAVIATURASI ---
 def get_cancel_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -283,72 +276,75 @@ def get_current_keyboard(user_id):
         return get_super_admin_keyboard() if user_id == ADMINS[0] else get_regular_admin_keyboard()
     return get_user_keyboard()
 
-# ----------------- 4. ASOSIY HANDLERLAR (/start, Obuna) -----------------
-
 @bot.message_handler(commands=['start', 'admin'])
 def send_welcome(message):
     user_id = message.from_user.id
     chat_id = message.chat.id
     
-    # YANGI: Foydalanuvchini DBga qo'shish/faolligini yangilash
-    db.add_user(user_id) 
+    # Bazaga foydalanuvchini qo'shish
+    db.add_user(user_id)
     
-    # Holatni tozalash
-    user_states.pop(chat_id, None)
-    user_data.pop(chat_id, None)
-    
-    # Obunani tekshirish
-    not_subscribed_channels = [ch for ch in CHANNELS if not check_subscription(user_id, ch)]
+    # ADMINLAR RO'YXATI (Kod ichida tekshirish)
+    # 1. Super Admin (Ro'yxatdagi birinchi ID)
+    if user_id == ADMINS[0]:
+        markup = get_super_admin_keyboard()
+        bot.send_message(chat_id, "👑 Xush kelibsiz, Super Admin!", reply_markup=markup)
+        return
 
-    if not_subscribed_channels:
-        # --- Obuna shartlari bajarilmagan ---
+    # 2. Oddiy Admin (Ro'yxatdagi qolgan IDlar)
+    elif user_id in ADMINS:
+        markup = get_regular_admin_keyboard()
+        bot.send_message(chat_id, "🛠️ Xush kelibsiz, Admin!", reply_markup=markup)
+        return
+
+    # 3. ODDIY FOYDALANUVCHI (Obuna tekshiruvi)
+    not_subscribed = [ch for ch in CHANNELS if not check_subscription(user_id, ch)]
+    if not_subscribed:
         keyboard = types.InlineKeyboardMarkup(row_width=1)
-        for channel_username in not_subscribed_channels:
-            channel_link = f"https://t.me/{channel_username.strip('@')}"
-            keyboard.add(types.InlineKeyboardButton(text=f"➕ {channel_username}", url=channel_link))
-        keyboard.add(types.InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_subs"))
-        bot.send_message(
-            chat_id,
-            "Botdan foydalanish uchun quyidagi kanallarga obuna bo'lishingiz shart:",
-            reply_markup=keyboard
-        )
+        for ch in not_subscribed:
+            keyboard.add(types.InlineKeyboardButton(text=f"➕ {ch}", url=f"https://t.me/{ch.strip('@')}"))
+        keyboard.add(types.InlineKeyboardButton(text="✅ Tekshirish", callback_data="check_subs"))
+        bot.send_message(chat_id, "Botdan foydalanish uchun kanallarga obuna bo'ling:", reply_markup=keyboard)
     else:
-        # --- Obuna shartlari bajarilgan ---
-        if db.is_admin(user_id):
-            keyboard = get_current_keyboard(user_id)
-            bot.send_message(chat_id, "🛠️ Admin Panelga xush kelibsiz! Marhamat, kerakli amalni tanlang:", reply_markup=keyboard)
-        else:
-            send_main_menu(chat_id)
+        bot.send_message(chat_id, "Xush kelibsiz!", reply_markup=get_user_keyboard())
 
+# Obuna tugmasi bosilganda tekshirish
 @bot.callback_query_handler(func=lambda call: call.data == "check_subs")
 def check_subscription_callback(call):
     user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    
     not_subscribed_channels = [ch for ch in CHANNELS if not check_subscription(user_id, ch)]
-            
     bot.answer_callback_query(call.id, "Obuna tekshirilmoqda...")
 
     if not_subscribed_channels:
-        # ... (Qayta obuna tugmalari) ...
         keyboard = types.InlineKeyboardMarkup(row_width=1)
         for channel_username in not_subscribed_channels:
             channel_link = f"https://t.me/{channel_username.strip('@')}"
             keyboard.add(types.InlineKeyboardButton(text=f"➕ {channel_username}", url=channel_link))
+        
         keyboard.add(types.InlineKeyboardButton(text="✅ Obunani qayta tekshirish", callback_data="check_subs"))
 
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Iltimos, avval barcha kanallarga obuna bo'ling:",
-            reply_markup=keyboard
-        )
+        try:
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                text="Iltimos, avval barcha kanallarga obuna bo'ling:",
+                reply_markup=keyboard
+            )
+        except:
+            pass
     else:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
+        # Obuna muvaffaqiyatli o'tgach
+        bot.delete_message(chat_id, call.message.message_id)
         
-        if db.is_admin(user_id):
+        # Yana bir bor adminligini tekshiramiz
+        admin_ids = [int(str(a)) for a in ADMINS] if 'ADMINS' in globals() else []
+        if user_id in admin_ids or db.is_admin(user_id):
             keyboard = get_current_keyboard(user_id)
-            bot.send_message(call.message.chat.id, "✅ Obunangiz tekshirildi. Admin panelga xush kelibsiz!", reply_markup=keyboard)
+            bot.send_message(chat_id, "✅ Obunangiz tekshirildi. Admin panelga xush kelibsiz!", reply_markup=keyboard)
         else:
-            send_main_menu(call.message.chat.id)
+            send_main_menu(chat_id)
 
 # ----------------- 5.1. ADMIN PANEL - KINO QO'SHISH -----------------
 @bot.message_handler(func=lambda message: message.text == "🎬 Kino qo'shish" and db.is_admin(message.from_user.id))
@@ -880,7 +876,7 @@ def movie_search_start(message):
     user_states[chat_id] = 'search_movie'
     bot.send_message(
         chat_id, 
-        "🔍 Iltimos, qidiriladigan kinoning kodini yoki nomini yozing:", 
+        "🔍 Iltimos, qidiriladigan kinoning kodini yozing:", 
         reply_markup=get_cancel_keyboard()
     )
 
@@ -890,7 +886,7 @@ def movie_search_execute(message):
     chat_id = message.chat.id
     query = message.text.strip()
 
-    if query.lower() == '❌ bekor qilish':
+    if query == '❌ bekor qilish' or query == '❌ Bekor Qilish':
         user_states.pop(chat_id, None)
         bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_user_keyboard())
         return
@@ -900,10 +896,11 @@ def movie_search_execute(message):
 
     if film_data:
         try:
+            # film_data[0] -> file_id, film_data[1] -> caption
             bot.send_video(
                 chat_id, 
-                video=film_data['file_id'], 
-                caption=film_data['caption'], 
+                video=film_data[0], 
+                caption=film_data[1], 
                 reply_to_message_id=message.message_id
             )
         except Exception as e:
@@ -914,125 +911,97 @@ def movie_search_execute(message):
 
     # Holatni tozalash
     user_states.pop(chat_id, None)
-@bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'search_drama')
-def user_drama_search_query(message):
-    chat_id = message.chat.id
-    query = message.text.strip()
 
-    # Bekor qilish
-    if query == "❌ Bekor Qilish":
-        user_states.pop(chat_id, None)
-        user_data.pop(chat_id, None)
-        bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_user_keyboard())
-        return
-
-    # Faqat son qabul qilish
-    if not query.isdigit():
-        bot.send_message(chat_id, "❌ Iltimos, faqat raqamli kod kiriting.")
-        return
-
-    code_int = int(query)
-
-    # Drama qidiruv
-    db.cursor.execute(
-        "SELECT code, caption, photo_id FROM dramas WHERE code = ?",
-        (code_int,)
-    )
-    drama = db.cursor.fetchone()
-
-    if not drama:
-        bot.send_message(chat_id, "❌ Drama topilmadi. Kodni tekshiring.")
-        return
-
-    code, caption, photo_id = drama
-    user_data[chat_id]['drama_code'] = code
-
-    # Epizodlarni olish
-    db.cursor.execute(
-        "SELECT episode_number, file_id FROM drama_episodes WHERE drama_code=? ORDER BY episode_number",
-        (code,)
-    )
-    episodes = db.cursor.fetchall()
-
-    if not episodes:
-        bot.send_message(chat_id, "❌ Bu dramada epizodlar topilmadi.")
-        return
-
-    # Inline tugmalar
-    markup = types.InlineKeyboardMarkup(row_width=5)
-    for ep in episodes[:10]:
-        markup.add(types.InlineKeyboardButton(text=str(ep[0]), callback_data=f"drama_{code}_{ep[0]}"))
-
-    if len(episodes) > 10:
-        markup.add(types.InlineKeyboardButton(text="➡️ Keyingi", callback_data=f"drama_next_{code}_10"))
-
-    markup.add(types.InlineKeyboardButton(text="❌ Bekor Qilish", callback_data="drama_cancel"))
-
-    # Drama rasm + caption bilan yuboriladi
-    bot.send_photo(chat_id, photo_id, caption=f"🎭 {caption}\nKod: {code}", reply_markup=markup)
-
-
-# ----------------- DRAMA INLINE CALLBACK -----------------
+# ----------------- DRAMA INLINE CALLBACK (TO'G'RILANGAN) -----------------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("drama_"))
 def drama_callback(call):
     chat_id = call.message.chat.id
     data = call.data.split("_")
 
-    # ===== BEKOR QILISH =====
+    # data[0] har doim "drama"
+    # data[1] yo buyruq (cancel, next), yo drama_code bo'ladi
+
+    # ===== 1. BEKOR QILISH =====
     if data[1] == "cancel":
         user_states.pop(chat_id, None)
-        user_data.pop(chat_id, None)
+        if chat_id in user_data:
+            user_data.pop(chat_id, None)
+        
         bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=None)
         bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_user_keyboard())
         bot.answer_callback_query(call.id)
         return
 
-    # ===== KEYINGI QISMLAR =====
+    # ===== 2. KEYINGI QISMLAR (PAGINATION) =====
     if data[1] == "next":
         drama_code = data[2]
         offset = int(data[3])
+        
+        # Keyingi 10 ta qismni olish
         db.cursor.execute(
             "SELECT episode_number FROM drama_episodes WHERE drama_code=? ORDER BY episode_number LIMIT 10 OFFSET ?",
             (drama_code, offset)
         )
         episodes = db.cursor.fetchall()
+        
         if episodes:
             keyboard = types.InlineKeyboardMarkup(row_width=5)
+            # Epizod tugmalarini yig'ish
+            btns = []
             for ep in episodes:
-                keyboard.add(types.InlineKeyboardButton(
+                btns.append(types.InlineKeyboardButton(
                     text=str(ep[0]),
-                    callback_data=f"drama_{drama_code}_{ep[0]}"
+                    callback_data=f"drama_{drama_code}_{ep[0]}" # Bu yerda drama_code va ep_soni ketadi
                 ))
+            keyboard.add(*btns)
+            
+            # Navigatsiya tugmalari
+            nav_btns = []
+            # Har doim "Oldingi" tugmasini ham qo'shish (agar offset 0 dan katta bo'lsa)
+            if offset >= 10:
+                nav_btns.append(types.InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"drama_next_{drama_code}_{offset-10}"))
+            
+            # Agar yana qismlar bo'lsa "Keyingi" tugmasi
             if len(episodes) == 10:
-                keyboard.add(types.InlineKeyboardButton(
-                    text="➡️ Keyingi",
-                    callback_data=f"drama_next_{drama_code}_{offset+10}"
-                ))
-            keyboard.add(types.InlineKeyboardButton(
-                text="❌ Bekor Qilish",
-                callback_data="drama_cancel"
-            ))
+                nav_btns.append(types.InlineKeyboardButton(text="➡️ Keyingi", callback_data=f"drama_next_{drama_code}_{offset+10}"))
+            
+            if nav_btns:
+                keyboard.add(*nav_btns)
+                
+            keyboard.add(types.InlineKeyboardButton(text="❌ Bekor Qilish", callback_data="drama_cancel"))
+            
             bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=keyboard)
+        
         bot.answer_callback_query(call.id)
         return
 
-    # ===== EPIZODNI OCHISH =====
-    drama_code = data[1]
-    episode_number = int(data[2])
-    db.cursor.execute(
-        "SELECT file_id FROM drama_episodes WHERE drama_code=? AND episode_number=?",
-        (drama_code, episode_number)
-    )
-    episode = db.cursor.fetchone()
-    if episode:
-        bot.send_video(
-            chat_id, 
-            episode[0], 
-            caption=f"🎭 {drama_code} - {episode_number}-qism"
+    # ===== 3. EPIZODNI OCHISH (VIDEO YUBORISH) =====
+    # Agar data[1] buyruq bo'lmasa, demak u drama_code
+    try:
+        drama_code = data[1]
+        episode_number = data[2] # Indeks 2 - qism raqami
+
+        db.cursor.execute(
+            "SELECT file_id FROM drama_episodes WHERE drama_code=? AND episode_number=?",
+            (drama_code, episode_number)
         )
-        bot.answer_callback_query(call.id, f"{episode_number}-qism ochildi")
-    else:
-        bot.answer_callback_query(call.id, "❌ Qism topilmadi")
+        episode = db.cursor.fetchone()
+        
+        if episode:
+            # episode[0] - bu file_id
+            bot.send_video(
+                chat_id, 
+                video=episode[0], 
+                caption=f"🎭 Kod: {drama_code}\n🎬 {episode_number}-qism"
+            )
+            bot.answer_callback_query(call.id, f"{episode_number}-qism yuborildi")
+        else:
+            bot.answer_callback_query(call.id, "❌ Video fayli topilmadi", show_alert=True)
+            
+    except Exception as e:
+        print(f"Callback xatosi: {e}")
+        bot.answer_callback_query(call.id, "⚠️ Xatolik yuz berdi")
+        
       # ----------------- MULTFILM QIDIRISH HANDLERI -----------------
 from telebot import types
 
@@ -2262,5 +2231,4 @@ def show_statistics(message):
 if __name__ == "__main__":
     keep_alive()
     logging.info("Bot ishga tushirildi...")
-
     bot.infinity_polling(skip_pending=True)
