@@ -133,8 +133,13 @@ class Database:
 
     # --- ADMIN AMALLARI ---
     def add_admin(self, user_id, username=None):
-        self.cursor.execute("INSERT OR IGNORE INTO admins (user_id, username) VALUES (?, ?)", (user_id, username))
-        self.conn.commit()
+        try:
+            self.cursor.execute("INSERT OR IGNORE INTO admins (user_id, username) VALUES (?, ?)", (user_id, username))
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            # Agar baribir ustun topilmasa, faqat ID ning o'zini saqlaymiz
+            self.cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
+            self.conn.commit()
 
     def remove_admin(self, user_id):
         self.cursor.execute("DELETE FROM admins WHERE user_id=?", (user_id,))
@@ -179,7 +184,7 @@ class Database:
 
 # --- DATABASE OBYEKTI ---
 db = Database(DB_NAME)
-## ----------------- 3. YORDAMCHI FUNKSIYALAR VA KLAVIATURALAR -----------------
+# ----------------- 3. YORDAMCHI FUNKSIYALAR VA KLAVIATURALAR -----------------
 
 # --- FOYDALANUVCHI KLAVIATURASI ---
 def get_user_keyboard():
@@ -196,62 +201,43 @@ def get_user_keyboard():
 def get_super_admin_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     keyboard.add(
-        types.KeyboardButton("🎬 Kino qo'shish"),
-        types.KeyboardButton("🎭 Drama qo'shish"),
-        types.KeyboardButton("🧸 Multfilm qo'shish"),
-        types.KeyboardButton("🎌 Anime qo'shish"),
-
-        types.KeyboardButton("🗑️ Kino o'chirish"),
-        types.KeyboardButton("🗑️ Drama o'chirish"),
-        types.KeyboardButton("🗑️ Multfilm o'chirish"),
-        types.KeyboardButton("🗑️ Anime o'chirish"),
-
-        types.KeyboardButton("📊 Statistika"),
-        types.KeyboardButton("📢 Reklama"),
+        types.KeyboardButton("🎬 Kino qo'shish"), types.KeyboardButton("🎭 Drama qo'shish"),
+        types.KeyboardButton("🧸 Multfilm qo'shish"), types.KeyboardButton("🎌 Anime qo'shish"),
+        types.KeyboardButton("🗑️ Kino o'chirish"), types.KeyboardButton("🗑️ Drama o'chirish"),
+        types.KeyboardButton("🗑️ Multfilm o'chirish"), types.KeyboardButton("🗑️ Anime o'chirish"),
+        types.KeyboardButton("📊 Statistika"), types.KeyboardButton("📢 Reklama"),
         types.KeyboardButton("❌ Bekor Qilish")
     )
     return keyboard
 
 # --- ODDIY ADMIN KLAVIATURASI ---
 def get_regular_admin_keyboard():
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    keyboard.add(
-        types.KeyboardButton("🎬 Kino qo'shish"),
-        types.KeyboardButton("🎭 Drama qo'shish"),
-        types.KeyboardButton("🧸 Multfilm qo'shish"),
-        types.KeyboardButton("🎌 Anime qo'shish"),
-
-        types.KeyboardButton("🗑️ Kino o'chirish"),
-        types.KeyboardButton("🗑️ Drama o'chirish"),
-        types.KeyboardButton("🗑️ Multfilm o'chirish"),
-        types.KeyboardButton("🗑️ Anime o'chirish"),
-
-        types.KeyboardButton("📊 Statistika"),
-        types.KeyboardButton("📢 Reklama"),
-        types.KeyboardButton("❌ Bekor Qilish")
-    )
-    return keyboard
-
-def get_current_keyboard(user_id):
-    """Foydalanuvchi darajasiga qarab klaviaturani qaytaradi"""
-    # 1. Super Adminni tekshirish (Ro'yxatdagi birinchi ID)
-    if 'ADMINS' in globals() and len(ADMINS) > 0:
-        if int(user_id) == int(ADMINS[0]):
-            return get_super_admin_keyboard()
-        
-        # 2. Oddiy Adminlarni tekshirish (Ro'yxatning qolgan qismi)
-        admin_ids = [int(str(a)) for a in ADMINS]
-        if int(user_id) in admin_ids:
-            return get_regular_admin_keyboard()
-
-    # 3. Agar admin bo'lmasa - Foydalanuvchi menyusi
-    return get_user_keyboard()
+    # Super admin bilan bir xil bo'lishi uchun (yoki o'zgartirishingiz mumkin)
+    return get_super_admin_keyboard()
 
 # --- BEKOR QILISH KLAVIATURASI ---
 def get_cancel_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
     keyboard.add(types.KeyboardButton("❌ Bekor Qilish"))
     return keyboard
+
+# --- QAYSI KLAVIATURA KELISHINI TANLASH (YAGONA FUNKSIYA) ---
+def get_current_keyboard(user_id):
+    """Foydalanuvchi darajasiga qarab klaviaturani qaytaradi"""
+    if 'ADMINS' in globals() and len(ADMINS) > 0:
+        admin_ids = [int(str(a)) for a in ADMINS]
+        if int(user_id) in admin_ids:
+            # Agar birinchi ID bo'lsa Super Admin, bo'lmasa Regular
+            if int(user_id) == admin_ids[0]:
+                return get_super_admin_keyboard()
+            else:
+                return get_regular_admin_keyboard()
+    
+    # Admin bo'lmasa yoki bazada admin deb belgilangan bo'lsa
+    if db.is_admin(user_id):
+        return get_regular_admin_keyboard()
+        
+    return get_user_keyboard()
 
 # --- SUBSCRIPTION TEKSHIRISH ---
 def check_subscription(user_id, channel_id):
@@ -269,82 +255,105 @@ def send_main_menu(chat_id):
         "🎬 Botimizga xush kelibsiz! Kino yoki Drama/Multfilm kodini yuboring yoki quyidagi tugmalardan foydalaning:",
         reply_markup=get_user_keyboard()
     )
-
 # --- QAYSI KLAVIATURA KELISHINI TANLASH ---
 def get_current_keyboard(user_id):
     if db.is_admin(user_id):
         return get_super_admin_keyboard() if user_id == ADMINS[0] else get_regular_admin_keyboard()
     return get_user_keyboard()
 
+# ----------------- 4. ASOSIY HANDLERLAR (/start, Obuna) -----------------
+
 @bot.message_handler(commands=['start', 'admin'])
 def send_welcome(message):
     user_id = message.from_user.id
     chat_id = message.chat.id
     
-    # Bazaga foydalanuvchini qo'shish
+    # 1. Bazaga foydalanuvchini qo'shish
     db.add_user(user_id)
     
-    # ADMINLAR RO'YXATI (Kod ichida tekshirish)
-    # 1. Super Admin (Ro'yxatdagi birinchi ID)
-    if user_id == ADMINS[0]:
-        markup = get_super_admin_keyboard()
-        bot.send_message(chat_id, "👑 Xush kelibsiz, Super Admin!", reply_markup=markup)
-        return
+    # 2. Holatlarni tozalash
+    user_states.pop(chat_id, None)
+    user_data.pop(chat_id, None)
 
-    # 2. Oddiy Admin (Ro'yxatdagi qolgan IDlar)
-    elif user_id in ADMINS:
-        markup = get_regular_admin_keyboard()
-        bot.send_message(chat_id, "🛠️ Xush kelibsiz, Admin!", reply_markup=markup)
-        return
+    # 3. UNIVERSAL ADMIN TEKSHIRUVI
+    admin_ids = [int(str(a)) for a in ADMINS]
 
-    # 3. ODDIY FOYDALANUVCHI (Obuna tekshiruvi)
+    if user_id in admin_ids:
+        # Bazaga admin ekanini saqlaymiz
+        db.add_admin(user_id, message.from_user.username)
+        
+        markup = get_current_keyboard(user_id)
+        
+        if user_id == admin_ids[0]:
+            bot.send_message(chat_id, "👑 Xush kelibsiz, Bosh Admin!", reply_markup=markup)
+        else:
+            bot.send_message(chat_id, "🛠️ Xush kelibsiz, Admin!", reply_markup=markup)
+        
+        return # Admin uchun obuna shart emas
+
+    # 4. ODDIY FOYDALANUVCHILAR
     not_subscribed = [ch for ch in CHANNELS if not check_subscription(user_id, ch)]
+    
     if not_subscribed:
         keyboard = types.InlineKeyboardMarkup(row_width=1)
         for ch in not_subscribed:
             keyboard.add(types.InlineKeyboardButton(text=f"➕ {ch}", url=f"https://t.me/{ch.strip('@')}"))
         keyboard.add(types.InlineKeyboardButton(text="✅ Tekshirish", callback_data="check_subs"))
+        
         bot.send_message(chat_id, "Botdan foydalanish uchun kanallarga obuna bo'ling:", reply_markup=keyboard)
     else:
-        bot.send_message(chat_id, "Xush kelibsiz!", reply_markup=get_user_keyboard())
+        send_main_menu(chat_id)
 
-# Obuna tugmasi bosilganda tekshirish
 @bot.callback_query_handler(func=lambda call: call.data == "check_subs")
 def check_subscription_callback(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     
-    not_subscribed_channels = [ch for ch in CHANNELS if not check_subscription(user_id, ch)]
-    bot.answer_callback_query(call.id, "Obuna tekshirilmoqda...")
+    admin_ids = [int(str(a)) for a in ADMINS]
+    not_subscribed = [ch for ch in CHANNELS if not check_subscription(user_id, ch)]
+    
+    bot.answer_callback_query(call.id, "Tekshirilmoqda...")
 
-    if not_subscribed_channels:
+    if not_subscribed and user_id not in admin_ids:
+        # Obuna bo'lmaganlarga qayta ko'rsatish
         keyboard = types.InlineKeyboardMarkup(row_width=1)
-        for channel_username in not_subscribed_channels:
-            channel_link = f"https://t.me/{channel_username.strip('@')}"
-            keyboard.add(types.InlineKeyboardButton(text=f"➕ {channel_username}", url=channel_link))
+        for ch in not_subscribed:
+            keyboard.add(types.InlineKeyboardButton(text=f"➕ {ch}", url=f"https://t.me/{ch.strip('@')}"))
+        keyboard.add(types.InlineKeyboardButton(text="✅ Tekshirish", callback_data="check_subs"))
         
-        keyboard.add(types.InlineKeyboardButton(text="✅ Obunani qayta tekshirish", callback_data="check_subs"))
-
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text="Iltimos, avval barcha kanallarga obuna bo'ling:",
+            reply_markup=keyboard
+        )
+    else:
+        # Muvaffaqiyatli o'tganda yoki Admin bo'lganda
         try:
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=call.message.message_id,
-                text="Iltimos, avval barcha kanallarga obuna bo'ling:",
-                reply_markup=keyboard
-            )
+            bot.delete_message(chat_id, call.message.message_id)
         except:
             pass
-    else:
-        # Obuna muvaffaqiyatli o'tgach
-        bot.delete_message(chat_id, call.message.message_id)
-        
-        # Yana bir bor adminligini tekshiramiz
-        admin_ids = [int(str(a)) for a in ADMINS] if 'ADMINS' in globals() else []
-        if user_id in admin_ids or db.is_admin(user_id):
-            keyboard = get_current_keyboard(user_id)
-            bot.send_message(chat_id, "✅ Obunangiz tekshirildi. Admin panelga xush kelibsiz!", reply_markup=keyboard)
+            
+        if user_id in admin_ids:
+            markup = get_current_keyboard(user_id)
+            bot.send_message(chat_id, "✅ Admin paneli faollashdi!", reply_markup=markup)
         else:
             send_main_menu(chat_id)
+
+            # --- ❌ GLOBAL BEKOR QILISH HANDLERI ---
+# Bu kodni hamma 'next_step_handler'lardan TEPAGA qo'ying
+@bot.message_handler(func=lambda message: message.text == "❌ Bekor Qilish")
+def handle_global_cancel(message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    
+    # 1. Barcha holat va vaqtinchalik ma'lumotlarni o'chiramiz
+    user_states.pop(chat_id, None)
+    user_data.pop(chat_id, None)
+    
+    # 2. Foydalanuvchi darajasiga qarab menyuni qaytaramiz
+    markup = get_current_keyboard(user_id)
+    bot.send_message(chat_id, "❌ Amal bekor qilindi. Bosh menyuga qaytdingiz.", reply_markup=markup)
 
 # ----------------- 5.1. ADMIN PANEL - KINO QO'SHISH -----------------
 @bot.message_handler(func=lambda message: message.text == "🎬 Kino qo'shish" and db.is_admin(message.from_user.id))
@@ -357,6 +366,8 @@ def admin_add_film_start(message):
 # 1️⃣ Kod qabul qilish
 @bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'film_waiting_code')
 def admin_add_film_code(message):
+    if message.text == "❌ Bekor Qilish":
+        return handle_global_cancel(message)
     chat_id = message.chat.id
     film_code = message.text.strip()
     
