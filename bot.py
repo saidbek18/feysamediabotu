@@ -13,7 +13,7 @@ API_TOKEN = '7966505221:AAHEUj82be8yTNnmfKhbpTz9CqiSR75SAx4' # O'zingizning haqi
 DB_NAME = 'bot.db'
 
 # --- ADMINLAR VA KANALLAR ---
-ADMINS = [8165064673,] # Bosh admin ID'si (Bu joyga o'z ID'ingizni kiriting)
+ADMINS = [8165064673,8134296521,6881871621,7035569750,8132410053] # Bosh admin ID'si (Bu joyga o'z ID'ingizni kiriting)
 CHANNELS = [
     '@tarjimakinolar_bizda',  # Haqiqiy kanal username'laringizni yozing!
     # '@kanal_username_2'
@@ -2262,4 +2262,5 @@ def show_statistics(message):
 if __name__ == "__main__":
     keep_alive()
     logging.info("Bot ishga tushirildi...")
+
     bot.infinity_polling(skip_pending=True)
