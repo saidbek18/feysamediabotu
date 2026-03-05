@@ -164,9 +164,10 @@ class Database:
         self.cursor.execute("UPDATE users SET is_blocked=? WHERE user_id=?", (is_blocked, user_id))
         self.conn.commit()
 
-    def get_all_users(self):
-        self.cursor.execute("SELECT user_id FROM users")
-        return [r[0] for r in self.cursor.fetchall()]
+    def get_all_users():
+        cursor.execute("SELECT user_id FROM users")
+        rows = cursor.fetchall()
+        return [row[0] for row in rows]
 
     def count_users(self):
         self.cursor.execute("SELECT COUNT(user_id) FROM users")
@@ -304,6 +305,7 @@ def send_welcome(message):
     else:
         send_main_menu(chat_id)
 
+
 @bot.callback_query_handler(func=lambda call: call.data == "check_subs")
 def check_subscription_callback(call):
     user_id = call.from_user.id
@@ -340,109 +342,138 @@ def check_subscription_callback(call):
         else:
             send_main_menu(chat_id)
 
-            # --- ❌ GLOBAL BEKOR QILISH HANDLERI ---
-# Bu kodni hamma 'next_step_handler'lardan TEPAGA qo'ying
-@bot.message_handler(func=lambda message: message.text == "❌ Bekor Qilish")
-def handle_global_cancel(message):
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-    
-    # 1. Barcha holat va vaqtinchalik ma'lumotlarni o'chiramiz
-    user_states.pop(chat_id, None)
-    user_data.pop(chat_id, None)
-    
-    # 2. Foydalanuvchi darajasiga qarab menyuni qaytaramiz
-    markup = get_current_keyboard(user_id)
-    bot.send_message(chat_id, "❌ Amal bekor qilindi. Bosh menyuga qaytdingiz.", reply_markup=markup)
 
-# ----------------- 5.1. ADMIN PANEL - KINO QO'SHISH -----------------
+
+# 1. Kanal sozlamasi (IDni kiritish shart, bot admin bo'lsa yuboradi)
+# Agar ID xato bo'lsa, konsolda xato chiqadi. 
+# Taxminiy ID: -1002244493395 (O'zingiznikiga almashtiring)
+CH_ID = -1003666920776
+
+# ===============================
+# 🎬 KINO QO'SHISH VA KANALGA YUBORISH
+# ===============================
+
 @bot.message_handler(func=lambda message: message.text == "🎬 Kino qo'shish" and db.is_admin(message.from_user.id))
 def admin_add_film_start(message):
     chat_id = message.chat.id
     user_states[chat_id] = 'film_waiting_code'
     user_data[chat_id] = {}
-    bot.send_message(chat_id, "🎥 Kino uchun noyob **kod** kiriting:", reply_markup=get_cancel_keyboard())
+    bot.send_message(chat_id, "🆔 Kino uchun **kod** kiriting:", reply_markup=get_cancel_keyboard())
 
-# 1️⃣ Kod qabul qilish
 @bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'film_waiting_code')
 def admin_add_film_code(message):
+    chat_id = message.chat.id
     if message.text == "❌ Bekor Qilish":
-        return handle_global_cancel(message)
-    chat_id = message.chat.id
-    film_code = message.text.strip()
-    
-    if db.get_film(film_code):
-        bot.send_message(chat_id, "❌ Bu kod allaqachon mavjud, boshqa kod kiriting.")
-        return
+        user_states.pop(chat_id, None)
+        return bot.send_message(chat_id, "✅ Bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
 
-    user_data[chat_id]['code'] = film_code
-    user_states[chat_id] = 'film_waiting_caption'
-    bot.send_message(chat_id, f"📝 {film_code} kodiga tegishli **caption** yuboring:", reply_markup=get_cancel_keyboard())
+    user_data[chat_id]['code'] = message.text.strip()
+    user_states[chat_id] = 'film_waiting_name'
+    bot.send_message(chat_id, "🎬 Kino **NOMINI** kiriting:", reply_markup=get_cancel_keyboard())
 
-# 2️⃣ Caption qabul qilish
-@bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'film_waiting_caption')
-def admin_add_film_caption(message):
+@bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'film_waiting_name')
+def admin_add_film_name(message):
     chat_id = message.chat.id
-    user_data[chat_id]['caption'] = message.text
+    if message.text == "❌ Bekor Qilish":
+        user_states.pop(chat_id, None)
+        return bot.send_message(chat_id, "✅ Bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
+
+    user_data[chat_id]['name'] = message.text.strip()
     user_states[chat_id] = 'film_waiting_parts'
-    bot.send_message(chat_id, "🎬 Nechta qism mavjud? (Agar bitta bo‘lsa 1 deb yozing)", reply_markup=get_cancel_keyboard())
+    bot.send_message(chat_id, "🔢 Nechta qism bor?", reply_markup=get_cancel_keyboard())
 
-# 3️⃣ Qism sonini qabul qilish
 @bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'film_waiting_parts')
 def admin_add_film_parts(message):
     chat_id = message.chat.id
+    if message.text == "❌ Bekor Qilish":
+        user_states.pop(chat_id, None)
+        return bot.send_message(chat_id, "✅ Bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
+
     try:
-        parts_count = int(message.text.strip())
-        if parts_count < 1:
-            raise ValueError
-    except ValueError:
-        bot.send_message(chat_id, "❌ Iltimos, 1 yoki undan katta son kiriting.")
-        return
+        user_data[chat_id]['parts'] = int(message.text)
+        user_data[chat_id]['current'] = 1
+        user_states[chat_id] = 'film_waiting_video'
+        bot.send_message(chat_id, "🎬 1-qism videoni yuboring:", reply_markup=get_cancel_keyboard())
+    except:
+        bot.send_message(chat_id, "❌ Son kiriting!")
 
-    user_data[chat_id]['parts_count'] = parts_count
-    user_data[chat_id]['current_part'] = 1
-    user_states[chat_id] = 'film_waiting_video'
-    bot.send_message(chat_id, f"🎬 1-qism videoni yuboring:", reply_markup=get_cancel_keyboard())
-
-# 4️⃣ Har bir qism uchun video qabul qilish
 @bot.message_handler(content_types=['video'], func=lambda message: user_states.get(message.chat.id) == 'film_waiting_video')
 def admin_add_film_video(message):
     chat_id = message.chat.id
-    data = user_data[chat_id]
-    code = data['code']
-    caption = data['caption']
-    parts_count = data['parts_count']
-    current_part = data['current_part']
-    file_id = message.video.file_id
+    data = user_data.get(chat_id)
+    if not data: return
 
-    if parts_count == 1:
-        db.add_film(code, file_id, caption)
-        bot.send_message(chat_id, f"✅ Kino qo‘shildi! Kod: {code}", reply_markup=get_current_keyboard(message.from_user.id))
+    # 🔥 AVTO-CAPTION (Video tagiga tushadi)
+    qism_str = f"🎞 **Qism:** {data['current']}-qism" if data['parts'] > 1 else "🎞 **Qism:** To'liq film"
+    caption = (
+        f"🆔 **Kino kodi:** {data['code']}\n"
+        f"🎬 **Nomi:** {data['name']}\n"
+        f"{qism_str}\n"
+        f"🇺🇿 **Tili:** O'zbek tilida\n\n"
+        f"🤖 **Botimiz:** @tarjimakinolarbizdabot"
+    )
+
+    # Bazaga saqlash
+    if data['parts'] == 1:
+        db.add_film(data['code'], message.video.file_id, caption)
     else:
-        # Qism ma'lumotlarini saqlash
+        # Barcha qismlarni film_episodes ga saqlaymiz
         db.cursor.execute(
-            "INSERT INTO drama_episodes (drama_code, episode_number, file_id) VALUES (?, ?, ?)",
-            (code, current_part, file_id)
+            "INSERT INTO film_episodes (film_code, episode_number, file_id) VALUES (?, ?, ?)",
+            (data['code'], data['current'], message.video.file_id)
         )
         db.conn.commit()
+    
+    # Keyingi qismni yuborish yoki tugatish
+    if data['current'] < data['parts']:
+        user_data[chat_id]['current'] += 1
+        bot.send_message(chat_id, f"🎬 {user_data[chat_id]['current']}-qismni yuboring:", reply_markup=get_cancel_keyboard())
+    else:
+        # ✅ HAMMASI TUGADI - KANALGA YUBORAMIZ
+        bot.send_message(chat_id, f"✅ Saqlandi! Kanalga mundarija yuborilmoqda...", reply_markup=get_current_keyboard(chat_id))
+    
+        # Kanalga yuboriladigan matn
+        channel_text = (
+            f"🆕 Yangi kino qo'shildi!\n\n"
+            f"🆔 Kino kodi: {data['code']}\n"
+            f"🎬 Nomi: {data['name']}\n"
+            f"🇺🇿 Tili: O'zbek tilida\n\n"
+            f"📥 Tomosha qilish uchun botga kiring:\n"
+            f"👉 @tarjimakinolarbizdabot"
+        )
+    
+        try:
+            bot.send_message(CH_ID, channel_text)
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ Kanalga yuborishda xato (Bot adminmi?): {e}")
+    
+        user_states.pop(chat_id, None)
+        user_data.pop(chat_id, None)
+            
+        # Kanalga yuboriladigan matn (Video emas, faqat ma'lumot)
+        channel_text = (
+            f"🆕 **Yangi kino qo'shildi!**\n\n"
+            f"🆔 **Kino kodi:** {data['code']}\n"
+            f"🎬 **Nomi:** {data['name']}\n"
+            f"🇺🇿 **Tili:** O'zbek tilida\n\n"
+            f"📥 **Tomosha qilish uchun botga kiring:**\n"
+            f"👉 @tarjimakinolarbizdabot"
+        )
+        
+        try:
+            bot.send_message(CH_ID, channel_text)
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ Kanalga yuborishda xato (Bot adminmi?): {e}")
 
-        if current_part < parts_count:
-            user_data[chat_id]['current_part'] += 1
-            bot.send_message(chat_id, f"🎬 {current_part+1}-qism videoni yuboring:", reply_markup=get_cancel_keyboard())
-            return
-        else:
-            bot.send_message(chat_id, f"✅ Barcha qismlar qo‘shildi! Kod: {code}", reply_markup=get_current_keyboard(message.from_user.id))
-
-    # Holatlarni tozalash
-    user_states.pop(chat_id, None)
-    user_data.pop(chat_id, None)
-
-# 5️⃣ Video o‘rniga noto‘g‘ri fayl yuborilsa
-@bot.message_handler(content_types=['text', 'photo', 'document', 'audio', 'voice'], func=lambda message: user_states.get(message.chat.id) == 'film_waiting_video')
-def admin_add_film_video_invalid(message):
-    bot.send_message(message.chat.id, "❌ Iltimos, faqat video yuboring.")
+        user_states.pop(chat_id, None)
+        user_data.pop(chat_id, None)
     # ----------------- 5.2. ADMIN PANEL - DRAMA QO'SHISH -----------------
-# ----------------- DRAMA QO'SHISH (ADMIN) -----------------
+user_states = {}
+user_data = {}
+
+CHANNEL_ID = -1003829109140  # Kanal IDsi
+
+# 1️⃣ Kod so'rash
 @bot.message_handler(func=lambda message: message.text == "🎭 Drama qo'shish" and db.is_admin(message.from_user.id))
 def add_drama_start(message):
     chat_id = message.chat.id
@@ -451,22 +482,20 @@ def add_drama_start(message):
     bot.send_message(chat_id, "🎭 Drama uchun faqat RAQAMLI kod yuboring (masalan: 101)", reply_markup=get_cancel_keyboard())
 
 
-# 1️⃣ Kodni qabul qilish (FAQAT SON)
+# 2️⃣ Kod qabul qilish
 @bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'drama_waiting_code')
 def add_drama_code(message):
     chat_id = message.chat.id
     code = message.text.strip()
 
-    # ❌ Ortga qaytarish
     if code == "❌ Bekor Qilish":
         user_states.pop(chat_id, None)
         user_data.pop(chat_id, None)
         bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(message.from_user.id))
         return
 
-    # ❌ Faqat son
     if not code.isdigit():
-        bot.send_message(chat_id, "❌ Kod faqat raqam bo‘lishi kerak! Masalan: 101")
+        bot.send_message(chat_id, "❌ Kod faqat raqam bo‘lishi kerak!")
         return
 
     if db.get_drama(code):
@@ -474,64 +503,14 @@ def add_drama_code(message):
         return
 
     user_data[chat_id]['code'] = code
-    user_states[chat_id] = 'drama_waiting_caption'
-    bot.send_message(chat_id, f"📝 Drama {code} uchun caption yuboring.", reply_markup=get_cancel_keyboard())
-
-
-# 2️⃣ Caption qabul qilish
-@bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'drama_waiting_caption')
-def add_drama_caption(message):
-    chat_id = message.chat.id
-
-    if message.text == "❌ Bekor Qilish":
-        user_states.pop(chat_id, None)
-        user_data.pop(chat_id, None)
-        bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(message.from_user.id))
-        return
-
-    user_data[chat_id]['caption'] = message.text.strip()
-    user_states[chat_id] = 'drama_waiting_photo'
-    bot.send_message(chat_id, "🖼 Drama uchun rasm yuboring yoki skip yozing.", reply_markup=get_cancel_keyboard())
-
-
-# 3️⃣ Rasm qabul qilish
-@bot.message_handler(content_types=['photo','text'], func=lambda message: user_states.get(message.chat.id) == 'drama_waiting_photo')
-def add_drama_photo(message):
-    chat_id = message.chat.id
-
-    if message.text == "❌ Bekor Qilish":
-        user_states.pop(chat_id, None)
-        user_data.pop(chat_id, None)
-        bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(message.from_user.id))
-        return
-
-    if message.text and message.text.lower() == 'skip':
-        photo_id = None
-    elif message.photo:
-        photo_id = message.photo[-1].file_id
-    else:
-        bot.send_message(chat_id, "❌ Rasm yuboring yoki skip yozing.")
-        return
-
-    code = user_data[chat_id]['code']
-    caption = user_data[chat_id]['caption']
-
-    # 🔥 Dramani aniq saqlaymiz
-    db.cursor.execute(
-        "INSERT INTO dramas (code, caption, photo_id) VALUES (?, ?, ?)",
-        (code, caption, photo_id)
-    )
-    db.conn.commit()
-
-    user_states[chat_id] = 'drama_waiting_episodes'
+    user_states[chat_id] = 'drama_waiting_episode_count'
     bot.send_message(chat_id, "🎬 Nechta qism qo‘shmoqchisiz?", reply_markup=get_cancel_keyboard())
 
 
-# 4️⃣ Qism soni
-@bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'drama_waiting_episodes')
-def add_drama_episodes_count(message):
+# 3️⃣ Qism soni qabul qilish
+@bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'drama_waiting_episode_count')
+def add_drama_episode_count(message):
     chat_id = message.chat.id
-
     if message.text == "❌ Bekor Qilish":
         user_states.pop(chat_id, None)
         user_data.pop(chat_id, None)
@@ -548,22 +527,52 @@ def add_drama_episodes_count(message):
 
     user_data[chat_id]['episode_count'] = count
     user_data[chat_id]['current_episode'] = 1
-    user_states[chat_id] = 'drama_waiting_episode_file'
+    user_states[chat_id] = 'drama_waiting_caption'
+    bot.send_message(chat_id, "📝 Drama uchun nom yuboring", reply_markup=get_cancel_keyboard())
 
-    bot.send_message(chat_id, "🎬 1-qism video faylini yuboring:", reply_markup=get_cancel_keyboard())
 
-
-# 5️⃣ Qism video saqlash (ISHLAYDIGAN)
-@bot.message_handler(content_types=['video'], func=lambda message: user_states.get(message.chat.id) == 'drama_waiting_episode_file')
-def add_drama_episode_file(message):
+# 4️⃣ Caption qabul qilish
+@bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'drama_waiting_caption')
+def add_drama_caption(message):
     chat_id = message.chat.id
-
     if message.text == "❌ Bekor Qilish":
         user_states.pop(chat_id, None)
         user_data.pop(chat_id, None)
         bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(message.from_user.id))
         return
 
+    user_data[chat_id]['caption'] = message.text.strip()
+    user_states[chat_id] = 'drama_waiting_photo'
+    bot.send_message(chat_id, "🖼 Drama uchun rasm yuboring bu majburiy", reply_markup=get_cancel_keyboard())
+
+
+# 5️⃣ Rasm qabul qilish
+@bot.message_handler(content_types=['photo', 'text'], func=lambda message: user_states.get(message.chat.id) == 'drama_waiting_photo')
+def add_drama_photo(message):
+    chat_id = message.chat.id
+    if message.text == "❌ Bekor Qilish":
+        user_states.pop(chat_id, None)
+        user_data.pop(chat_id, None)
+        bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(message.from_user.id))
+        return
+
+    if message.text and message.text.lower() == 'skip':
+        photo_id = None
+    elif message.photo:
+        photo_id = message.photo[-1].file_id
+    else:
+        bot.send_message(chat_id, "❌ Rasm yuboring yoki skip yozing.")
+        return
+
+    user_data[chat_id]['photo_id'] = photo_id
+    user_states[chat_id] = 'drama_waiting_episode_file'
+    bot.send_message(chat_id, f"🎬 1-qism video faylini yuboring:", reply_markup=get_cancel_keyboard())
+
+
+# 6️⃣ Qism video qabul qilish
+@bot.message_handler(content_types=['video'], func=lambda message: user_states.get(message.chat.id) == 'drama_waiting_episode_file')
+def add_drama_episode_file(message):
+    chat_id = message.chat.id
     if chat_id not in user_data:
         bot.send_message(chat_id, "❌ Xatolik. Qaytadan boshlang.")
         return
@@ -573,312 +582,327 @@ def add_drama_episode_file(message):
     total = user_data[chat_id]['episode_count']
     file_id = message.video.file_id
 
+    # Qismni saqlash
     db.cursor.execute(
         "INSERT INTO drama_episodes (drama_code, episode_number, file_id) VALUES (?, ?, ?)",
         (code, current, file_id)
     )
     db.conn.commit()
 
+    # Agar keyingi qism bo'lsa, so'raymiz
     if current < total:
         user_data[chat_id]['current_episode'] += 1
         bot.send_message(chat_id, f"🎬 {current+1}-qism video faylini yuboring:", reply_markup=get_cancel_keyboard())
     else:
-        bot.send_message(chat_id, f"✅ Drama {code} barcha qismlari qo‘shildi!",
-                         reply_markup=get_current_keyboard(message.from_user.id))
+        # Drama saqlash
+        db.cursor.execute(
+            "INSERT INTO dramas (code, caption, photo_id) VALUES (?, ?, ?)",
+            (code, user_data[chat_id]['caption'], user_data[chat_id]['photo_id'])
+        )
+        db.conn.commit()
+
+        # Kanalga caption bilan post qilish
+        caption_text = f"""🆕 **Yangi kino qo'shildi!**
+
+🆔 **Kino kodi:** {code}
+🎬 **Nomi:** {user_data[chat_id]['caption']}
+🇺🇿 **Tili:** O'zbek tilida
+
+📥 **Tomosha qilish uchun botga kiring:**
+👉 @tarjimakinolarbizdabot
+"""
+        bot.send_message(CHANNEL_ID, caption_text)
+
+        bot.send_message(chat_id, f"✅ Drama {code} barcha qismlari qo‘shildi!", reply_markup=get_current_keyboard(message.from_user.id))
         user_states.pop(chat_id, None)
         user_data.pop(chat_id, None)
 
 
-# Agar noto‘g‘ri fayl yuborilsa
+# 7️⃣ Noto'g'ri fayl yuborilsa
 @bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'drama_waiting_episode_file')
 def add_drama_episode_invalid(message):
     bot.send_message(message.chat.id, "❌ Iltimos, faqat video fayl yuboring.")
-user_states = {}
-user_data = {}
 
 # ===============================
-# 1️⃣ BOSHLASH
+# 🧸 MULTFILM QO'SHISH (KANALGA YUBORISH)
 # ===============================
+
+CH_ID = -1003605866510  # Kanal ID sini o'zingizga moslang
+
+# --- Multfilm qo'shish boshlanishi ---
 @bot.message_handler(func=lambda message: message.text == "🧸 Multfilm qo'shish" and db.is_admin(message.from_user.id))
 def admin_start_add(message):
     chat_id = message.chat.id
     user_states[chat_id] = "waiting_code"
     user_data[chat_id] = {}
-    bot.send_message(chat_id, "🧸 Multfilm uchun noyob kod kiriting:")
+    bot.send_message(chat_id, "🧸 Multfilm uchun noyob kod kiriting:", reply_markup=get_cancel_keyboard())
 
-
-# ===============================
-# 2️⃣ KOD
-# ===============================
+# --- Kod qabul qilish ---
 @bot.message_handler(func=lambda message: user_states.get(message.chat.id) == "waiting_code")
 def admin_get_code(message):
     chat_id = message.chat.id
     code = message.text.strip()
+    
+    if code == "❌ Bekor Qilish":
+        user_states.pop(chat_id, None)
+        return bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
 
     cur = db.conn.cursor()
     cur.execute("SELECT code FROM cartoons WHERE code = ?", (code,))
     if cur.fetchone():
-        bot.send_message(chat_id, "❌ Bu kod allaqachon mavjud!")
-        cur.close()
-        return
-    cur.close()
-
+        return bot.send_message(chat_id, "❌ Bu kod allaqachon mavjud!")
+    
     user_data[chat_id]["code"] = code
     user_states[chat_id] = "waiting_caption"
-    bot.send_message(chat_id, "📝 Caption yuboring:")
+    bot.send_message(chat_id, "📝 Caption (matn) yuboring:", reply_markup=get_cancel_keyboard())
 
-
-# ===============================
-# 3️⃣ CAPTION
-# ===============================
+# --- Caption qabul qilish ---
 @bot.message_handler(func=lambda message: user_states.get(message.chat.id) == "waiting_caption")
 def admin_get_caption(message):
     chat_id = message.chat.id
-    user_data[chat_id]["caption"] = message.text
+    text = message.text
+
+    if text == "❌ Bekor Qilish":
+        user_states.pop(chat_id, None)
+        return bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
+
+    user_data[chat_id]["caption"] = text
     user_states[chat_id] = "waiting_photo"
-    bot.send_message(chat_id, "🖼 Rasm yuboring yoki /skip yozing:")
+    bot.send_message(chat_id, "🖼 Rasm yuboring yoki /skip yozing:", reply_markup=get_cancel_keyboard())
 
-
-# ===============================
-# 4️⃣ PHOTO
-# ===============================
-@bot.message_handler(content_types=["photo"], func=lambda message: user_states.get(message.chat.id) == "waiting_photo")
+# --- Rasm yoki skip qabul qilish ---
+@bot.message_handler(content_types=["photo", "text"], func=lambda message: user_states.get(message.chat.id) == "waiting_photo")
 def admin_get_photo(message):
     chat_id = message.chat.id
-    photo_id = message.photo[-1].file_id
-    user_data[chat_id]["photo_id"] = photo_id
+
+    if message.text == "❌ Bekor Qilish":
+        user_states.pop(chat_id, None)
+        return bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
+
+    if message.content_type == "photo":
+        user_data[chat_id]["photo_id"] = message.photo[-1].file_id
+    elif message.text == "/skip":
+        user_data[chat_id]["photo_id"] = None
+    else:
+        return bot.send_message(chat_id, "❌ Rasm yuboring yoki /skip yozing.")
+    
     user_states[chat_id] = "waiting_parts"
-    bot.send_message(chat_id, "🎬 Nechta qism bor?")
+    bot.send_message(chat_id, "🎬 Nechta qism bor?", reply_markup=get_cancel_keyboard())
 
-
-@bot.message_handler(func=lambda message: message.text == "/skip" and user_states.get(message.chat.id) == "waiting_photo")
-def admin_skip_photo(message):
-    chat_id = message.chat.id
-    user_data[chat_id]["photo_id"] = None
-    user_states[chat_id] = "waiting_parts"
-    bot.send_message(chat_id, "🎬 Nechta qism bor?")
-
-
-# ===============================
-# 5️⃣ QISM SONI
-# ===============================
+# --- Qism sonini qabul qilish ---
 @bot.message_handler(func=lambda message: user_states.get(message.chat.id) == "waiting_parts")
 def admin_get_parts(message):
     chat_id = message.chat.id
+    text = message.text
+
+    if text == "❌ Bekor Qilish":
+        user_states.pop(chat_id, None)
+        return bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
+
     try:
-        parts = int(message.text.strip())
-        if parts < 1:
-            raise ValueError
+        parts = int(text.strip())
+        if parts < 1: raise ValueError
     except:
-        bot.send_message(chat_id, "❌ 1 yoki undan katta son kiriting.")
-        return
+        return bot.send_message(chat_id, "❌ 1 yoki undan katta son kiriting.")
 
     user_data[chat_id]["parts"] = parts
     user_data[chat_id]["current"] = 1
     user_states[chat_id] = "waiting_video"
+    bot.send_message(chat_id, f"🎬 1-qism videoni yuboring:", reply_markup=get_cancel_keyboard())
 
-    bot.send_message(chat_id, "🎬 1-qism videoni yuboring:")
-
-
-# ===============================
-# 6️⃣ VIDEO
-# ===============================
-@bot.message_handler(content_types=["video"], func=lambda message: user_states.get(message.chat.id) == "waiting_video")
+# --- Video qabul qilish ---
+@bot.message_handler(content_types=["video", "text"], func=lambda message: user_states.get(message.chat.id) == "waiting_video")
 def admin_get_video(message):
     chat_id = message.chat.id
+
+    if message.text == "❌ Bekor Qilish":
+        user_states.pop(chat_id, None)
+        return bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
+
+    if message.content_type != "video":
+        return bot.send_message(chat_id, "❌ Iltimos, faqat video yuboring yoki /skip.")
+
     data = user_data.get(chat_id)
-
-    if not data:
-        return
-
-    code = data["code"]
-    caption = data["caption"]
-    photo_id = data["photo_id"]
-    parts = data["parts"]
-    current = data["current"]
+    code, current, parts = data["code"], data["current"], data["parts"]
     file_id = message.video.file_id
 
     cur = db.conn.cursor()
-
     try:
-        # 🔥 1-qism bo‘lsa multfilmni yaratamiz
         if current == 1:
-            cur.execute(
-                "INSERT INTO cartoons (code, caption, photo_id) VALUES (?, ?, ?)",
-                (code, caption, photo_id)
-            )
-
-        # 🔥 ENG MUHIM JOY — episode_number to‘g‘ri ketishi
-        cur.execute(
-            "INSERT INTO cartoon_episodes (cartoon_code, episode_number, file_id) VALUES (?, ?, ?)",
-            (code, current, file_id)
-        )
-
+            cur.execute("INSERT INTO cartoons (code, caption, photo_id) VALUES (?, ?, ?)", 
+                        (code, data["caption"], data["photo_id"]))
+        
+        cur.execute("INSERT INTO cartoon_episodes (cartoon_code, episode_number, file_id) VALUES (?, ?, ?)", 
+                    (code, current, file_id))
         db.conn.commit()
-
     except Exception as e:
         db.conn.rollback()
-        bot.send_message(chat_id, f"❌ Xato: {e}")
-        cur.close()
-        return
+        return bot.send_message(chat_id, f"❌ Xato: {e}")
 
-    cur.close()
-
-    # 🔥 BU JOY MUHIM — current ni oshiramiz
     if current < parts:
-        user_data[chat_id]["current"] = current + 1
-        bot.send_message(chat_id, f"🎬 {current + 1}-qism videoni yuboring:")
+        user_data[chat_id]["current"] += 1
+        bot.send_message(chat_id, f"🎬 {current + 1}-qism videoni yuboring:", reply_markup=get_cancel_keyboard())
     else:
-        bot.send_message(chat_id, f"✅ Multfilm saqlandi! Kod: {code}")
+        # ✅ Hammasi tugadi - kanalga yuborish
+        channel_text = (
+            f"🆕 **Yangi kino qo'shildi!**\n\n"
+            f"🆔 **Kino kodi:** {code}\n"
+            f"🎬 **Nomi:** {data['caption']}\n"
+            f"🇺🇿 **Tili:** O'zbek tilida\n\n"
+            f"📥 **Tomosha qilish uchun botga kiring:**\n"
+            f"👉 @tarjimakinolarbizdabot"
+        )
+
+        try:
+            if data["photo_id"]:
+                bot.send_photo(CH_ID, data["photo_id"], caption=channel_text, parse_mode="Markdown")
+            else:
+                bot.send_message(CH_ID, channel_text, parse_mode="Markdown")
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ Kanalga yuborishda xato (Bot adminmi?): {e}")
+
         user_states.pop(chat_id, None)
         user_data.pop(chat_id, None)
 # ===============================
-# 7️⃣ NOTO‘G‘RI FAYL
+# 🎌 ANIME QO'SHISH (KANALGA YUBORISH)
 # ===============================
-@bot.message_handler(func=lambda message: user_states.get(message.chat.id) == "waiting_video")
-def wrong_file(message):
-    bot.send_message(message.chat.id, "❌ Faqat video yuboring.")
 
-    # ===============================
-# 1️⃣ BOSHLASH
-# ===============================
+CH_ID = -1003859167418  # O'zingizning kanal ID sini qo'ying
+
+# --- Anime qo'shish boshlanishi ---
 @bot.message_handler(func=lambda message: message.text == "🎌 Anime qo'shish" and db.is_admin(message.from_user.id))
 def admin_start_add_anime(message):
     chat_id = message.chat.id
     user_states[chat_id] = "waiting_anime_code"
     user_data[chat_id] = {}
-    bot.send_message(chat_id, "🎌 Anime uchun noyob kod kiriting:")
+    bot.send_message(chat_id, "🎌 Anime uchun noyob kod kiriting:", reply_markup=get_cancel_keyboard())
 
-
-# ===============================
-# 2️⃣ KOD
-# ===============================
+# --- Kod qabul qilish ---
 @bot.message_handler(func=lambda message: user_states.get(message.chat.id) == "waiting_anime_code")
 def admin_get_anime_code(message):
     chat_id = message.chat.id
     code = message.text.strip()
 
+    if code == "❌ Bekor Qilish":
+        user_states.pop(chat_id, None)
+        return bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
+
     cur = db.conn.cursor()
     cur.execute("SELECT code FROM animes WHERE code = ?", (code,))
     if cur.fetchone():
-        bot.send_message(chat_id, "❌ Bu kod allaqachon mavjud!")
-        cur.close()
-        return
-    cur.close()
+        return bot.send_message(chat_id, "❌ Bu kod allaqachon mavjud!")
 
     user_data[chat_id]["code"] = code
     user_states[chat_id] = "waiting_anime_caption"
-    bot.send_message(chat_id, "📝 Caption yuboring:")
+    bot.send_message(chat_id, "📝 Anime caption yuboring:", reply_markup=get_cancel_keyboard())
 
-
-# ===============================
-# 3️⃣ CAPTION
-# ===============================
+# --- Caption qabul qilish ---
 @bot.message_handler(func=lambda message: user_states.get(message.chat.id) == "waiting_anime_caption")
 def admin_get_anime_caption(message):
     chat_id = message.chat.id
-    user_data[chat_id]["caption"] = message.text
+    text = message.text
+
+    if text == "❌ Bekor Qilish":
+        user_states.pop(chat_id, None)
+        return bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
+
+    user_data[chat_id]["caption"] = text
     user_states[chat_id] = "waiting_anime_photo"
-    bot.send_message(chat_id, "🖼 Rasm yuboring yoki /skip yozing:")
+    bot.send_message(chat_id, "🖼 Rasm yuboring yoki /skip yozing:", reply_markup=get_cancel_keyboard())
 
-
-# ===============================
-# 4️⃣ PHOTO
-# ===============================
-@bot.message_handler(content_types=["photo"], func=lambda message: user_states.get(message.chat.id) == "waiting_anime_photo")
+# --- Rasm yoki skip qabul qilish ---
+@bot.message_handler(content_types=["photo", "text"], func=lambda message: user_states.get(message.chat.id) == "waiting_anime_photo")
 def admin_get_anime_photo(message):
     chat_id = message.chat.id
-    photo_id = message.photo[-1].file_id
-    user_data[chat_id]["photo_id"] = photo_id
+
+    if message.text == "❌ Bekor Qilish":
+        user_states.pop(chat_id, None)
+        return bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
+
+    if message.content_type == "photo":
+        user_data[chat_id]["photo_id"] = message.photo[-1].file_id
+    elif message.text == "/skip":
+        user_data[chat_id]["photo_id"] = None
+    else:
+        return bot.send_message(chat_id, "❌ Rasm yuboring yoki /skip yozing.")
+
     user_states[chat_id] = "waiting_anime_parts"
-    bot.send_message(chat_id, "🎬 Nechta qism bor?")
+    bot.send_message(chat_id, "🎬 Nechta qism bor?", reply_markup=get_cancel_keyboard())
 
-
-@bot.message_handler(func=lambda message: message.text == "/skip" and user_states.get(message.chat.id) == "waiting_anime_photo")
-def admin_skip_anime_photo(message):
-    chat_id = message.chat.id
-    user_data[chat_id]["photo_id"] = None
-    user_states[chat_id] = "waiting_anime_parts"
-    bot.send_message(chat_id, "🎬 Nechta qism bor?")
-
-
-# ===============================
-# 5️⃣ QISM SONI
-# ===============================
+# --- Qism sonini qabul qilish ---
 @bot.message_handler(func=lambda message: user_states.get(message.chat.id) == "waiting_anime_parts")
 def admin_get_anime_parts(message):
     chat_id = message.chat.id
+    text = message.text
+
+    if text == "❌ Bekor Qilish":
+        user_states.pop(chat_id, None)
+        return bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
+
     try:
-        parts = int(message.text.strip())
-        if parts < 1:
-            raise ValueError
+        parts = int(text.strip())
+        if parts < 1: raise ValueError
     except:
-        bot.send_message(chat_id, "❌ 1 yoki undan katta son kiriting.")
-        return
+        return bot.send_message(chat_id, "❌ Musbat son kiriting.")
 
     user_data[chat_id]["parts"] = parts
     user_data[chat_id]["current"] = 1
     user_states[chat_id] = "waiting_anime_video"
+    bot.send_message(chat_id, f"🎬 1-qism videoni yuboring:", reply_markup=get_cancel_keyboard())
 
-    bot.send_message(chat_id, "🎬 1-qism videoni yuboring:")
-
-
-# ===============================
-# 6️⃣ VIDEO
-# ===============================
-# Video qismi (faqat video uchun ishlaydi)
-@bot.message_handler(content_types=["video"], func=lambda message: user_states.get(message.chat.id) == "waiting_anime_video")
+# --- Video qabul qilish ---
+@bot.message_handler(content_types=["video", "text"], func=lambda message: user_states.get(message.chat.id) == "waiting_anime_video")
 def admin_get_anime_video(message):
     chat_id = message.chat.id
-    data = user_data.get(chat_id)
-    if not data:
-        return
 
-    code = data["code"]
-    caption = data["caption"]
-    photo_id = data.get("photo_id")
-    parts = data["parts"]
-    current = data["current"]
+    if message.text == "❌ Bekor Qilish":
+        user_states.pop(chat_id, None)
+        return bot.send_message(chat_id, "✅ Amal bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
+
+    if message.content_type != "video":
+        return bot.send_message(chat_id, "❌ Iltimos, faqat video yuboring.")
+
+    data = user_data.get(chat_id)
+    code, current, parts = data["code"], data["current"], data["parts"]
     file_id = message.video.file_id
 
     cur = db.conn.cursor()
     try:
         if current == 1:
-            cur.execute(
-                "INSERT INTO animes (code, caption, photo_id) VALUES (?, ?, ?)",
-                (code, caption, photo_id)
-            )
-        cur.execute(
-            "INSERT INTO anime_episodes (anime_code, episode_number, file_id) VALUES (?, ?, ?)",
-            (code, current, file_id)
-        )
+            cur.execute("INSERT INTO animes (code, caption, photo_id) VALUES (?, ?, ?)", 
+                        (code, data["caption"], data["photo_id"]))
+        
+        cur.execute("INSERT INTO anime_episodes (anime_code, episode_number, file_id) VALUES (?, ?, ?)", 
+                    (code, current, file_id))
         db.conn.commit()
     except Exception as e:
         db.conn.rollback()
-        bot.send_message(chat_id, f"❌ Xato: {e}")
-        cur.close()
-        return
-    cur.close()
+        return bot.send_message(chat_id, f"❌ Xato: {e}")
 
     if current < parts:
-        user_data[chat_id]["current"] = current + 1
-        bot.send_message(chat_id, f"🎬 {current + 1}-qism videoni yuboring:")
+        user_data[chat_id]["current"] += 1
+        bot.send_message(chat_id, f"🎬 {current + 1}-qism videoni yuboring:", reply_markup=get_cancel_keyboard())
     else:
-        bot.send_message(chat_id, f"✅ Anime saqlandi! Kod: {code}")
+        # ✅ Hammasi tugadi - kanalga yuborish
+        channel_text = (
+            f"🆕 **Yangi anime qo'shildi!**\n\n"
+            f"🆔 **Anime kodi:** {code}\n"
+            f"🎬 **Nomi:** {data['caption']}\n"
+            f"🇺🇿 **Tili:** O'zbek tilida\n\n"
+            f"📥 **Tomosha qilish uchun botga kiring:**\n"
+            f"👉 @tarjimakinolarbizdabot"
+        )
+
+        try:
+            if data["photo_id"]:
+                bot.send_photo(CH_ID, data["photo_id"], caption=channel_text, parse_mode="Markdown")
+            else:
+                bot.send_message(CH_ID, channel_text, parse_mode="Markdown")
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ Kanalga yuborishda xato (Bot adminmi?): {e}")
+
         user_states.pop(chat_id, None)
         user_data.pop(chat_id, None)
-
-# Noto‘g‘ri fayl handleri (video bo‘lmagan xabarlar uchun)
-@bot.message_handler(func=lambda message: user_states.get(message.chat.id) == "waiting_anime_video",
-                     content_types=["text", "photo", "audio", "document", "sticker", "voice"])
-def wrong_anime_file(message):
-    bot.send_message(message.chat.id, "❌ Faqat video yuboring.")
-# ===============================
-# 7️⃣ NOTO‘G‘RI FAYL
-# ===============================
-@bot.message_handler(func=lambda message: user_states.get(message.chat.id) == "waiting_anime_video")
-def wrong_anime_file(message):
-    bot.send_message(message.chat.id, "❌ Faqat video yuboring.")
 
 # ----------------- 6.1. KINO QIDIRISH HANDLERI -----------------
 @bot.message_handler(func=lambda message: message.text == "🎬 Kino qidirish")
@@ -2146,77 +2170,143 @@ def is_online(user_id):
     except:
         return False
     return datetime.now() - last_active < timedelta(minutes=5)  # oxirgi 5 daqiqa ichida aktiv
+# ---------- REKLAMA FUNKSIYASI (ALOHIDA OQIMDA) ----------
+def send_ads_thread(chat_id, data, all_users):
+    count = 0
 
-# ---------- REKLAMA YUBORISH ----------
-@bot.message_handler(func=lambda message: message.text == "📢 Reklama yuborish")
+    for user in all_users:
+        uid = user[0]  # database tuple qaytaradi shuning uchun [0]
+
+        try:
+            if data['type'] == 'text':
+                bot.send_message(uid, data['text'])
+
+            elif data['type'] == 'photo':
+                bot.send_photo(uid, data['file_id'], caption=data.get('caption', ''))
+
+            elif data['type'] == 'video':
+                bot.send_video(uid, data['file_id'], caption=data.get('caption', ''))
+
+            count += 1
+
+            # Telegram bloklamasligi uchun
+            if count % 25 == 0:
+                time.sleep(1)
+
+        except Exception as e:
+            print(f"{uid} ga yuborilmadi: {e}")
+            continue
+
+    bot.send_message(chat_id, f"✅ Reklama yakunlandi! {count} kishiga yuborildi.")
+
+
+# ---------- HANDLERLAR ----------
+
+@bot.message_handler(func=lambda message: message.text == "📢 Reklama")
 def ad_start(message):
-    chat_id = message.chat.id
-    if not is_admin(chat_id):
-        bot.send_message(chat_id, "❌ Sizda ruxsat yo'q.")
+    if not db.is_admin(message.from_user.id):
         return
-    user_states[chat_id] = 'ad_caption'
-    user_data[chat_id] = {}
-    bot.send_message(chat_id, "📝 Reklama caption kiriting:")
 
-@bot.message_handler(func=lambda message: user_states.get(message.chat.id) in ['ad_caption','ad_photo','ad_confirm'])
+    chat_id = message.chat.id
+    user_states[chat_id] = 'ad_content'
+
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("❌ Bekor Qilish")
+
+    bot.send_message(
+        chat_id,
+        "📝 Reklama xabarini yuboring (Matn, Rasm yoki Video):",
+        reply_markup=markup
+    )
+
+
+@bot.message_handler(content_types=['text','photo','video'],
+func=lambda message: user_states.get(message.chat.id) == 'ad_content')
 def ad_process(message):
-    chat_id = message.chat.id
-    state = user_states[chat_id]
 
-    if state == 'ad_caption':
-        user_data[chat_id]['caption'] = message.text
-        user_states[chat_id] = 'ad_photo'
-        bot.send_message(chat_id, "📸 Rasm jo'nating yoki /skip deb o‘tkazing:")
+    chat_id = message.chat.id
+
+    if message.text == "❌ Bekor Qilish":
+        user_states.pop(chat_id, None)
+        bot.send_message(chat_id, "✅ Bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
         return
 
-    if state == 'ad_photo':
-        if message.text == "/skip":
-            user_data[chat_id]['photo'] = None
-        elif message.photo:
-            file_id = message.photo[-1].file_id
-            user_data[chat_id]['photo'] = file_id
-        elif message.document and message.document.mime_type.startswith('image/'):
-            file_id = message.document.file_id
-            user_data[chat_id]['photo'] = file_id
-        else:
-            bot.send_message(chat_id, "❌ Rasm jo'nating yoki /skip deb o‘tkazing:")
-            return
+    content = {}
 
-        # Tasdiqlash
-        caption = user_data[chat_id]['caption']
-        photo = user_data[chat_id].get('photo')
-        markup = types.InlineKeyboardMarkup()
-        markup.row(
-            types.InlineKeyboardButton("✅ Yuborish", callback_data="ad_send"),
-            types.InlineKeyboardButton("❌ Bekor qilish", callback_data="ad_cancel")
-        )
-        if photo:
-            bot.send_photo(chat_id, photo, caption=caption, reply_markup=markup)
-        else:
-            bot.send_message(chat_id, caption, reply_markup=markup)
-        user_states[chat_id] = 'ad_confirm'
+    if message.content_type == 'text':
+        content = {
+            'type': 'text',
+            'text': message.text
+        }
+
+    elif message.content_type == 'photo':
+        content = {
+            'type': 'photo',
+            'file_id': message.photo[-1].file_id,
+            'caption': message.caption
+        }
+
+    elif message.content_type == 'video':
+        content = {
+            'type': 'video',
+            'file_id': message.video.file_id,
+            'caption': message.caption
+        }
+
+    user_data[chat_id] = content
+    user_states[chat_id] = 'ad_confirm'
+
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton("✅ Yuborish", callback_data="ad_send"),
+        types.InlineKeyboardButton("❌ Bekor qilish", callback_data="ad_cancel")
+    )
+
+    bot.send_message(chat_id, "Ushbu xabar hammaga yuborilsinmi?", reply_markup=markup)
+
 
 @bot.callback_query_handler(func=lambda call: call.data in ['ad_send','ad_cancel'])
 def ad_callback(call):
+
     chat_id = call.message.chat.id
+
     if call.data == 'ad_send':
-        all_users = get_all_users()
-        caption = user_data.get(chat_id, {}).get('caption', '')
-        photo = user_data.get(chat_id, {}).get('photo')
-        for uid in all_users:
-            try:
-                if photo:
-                    bot.send_photo(uid, photo, caption=caption)
-                else:
-                    bot.send_message(uid, caption)
-            except Exception as e:
-                print(f"Xatolik yuborishda {uid}: {e}")
-                continue
-        bot.send_message(chat_id, "✅ Reklama yuborildi!")
+
+        data = user_data.get(chat_id)
+
+        if not data:
+            bot.edit_message_text(
+                "❌ Ma'lumot muddati o'tgan. Qaytadan urinib ko'ring.",
+                chat_id,
+                call.message.message_id
+            )
+            return
+
+        all_users = db.get_all_users()
+
+        if not all_users:
+            bot.send_message(chat_id, "❌ Foydalanuvchilar bazasi bo'sh!")
+            return
+
+        bot.edit_message_text(
+            f"🚀 Yuborish boshlandi (Jami: {len(all_users)} ta user)...",
+            chat_id,
+            call.message.message_id
+        )
+
+        threading.Thread(
+            target=send_ads_thread,
+            args=(chat_id, data, all_users)
+        ).start()
+
     else:
-        bot.send_message(chat_id, "❌ Amal bekor qilindi.")
+        bot.edit_message_text(
+            "❌ Reklama rad etildi.",
+            chat_id,
+            call.message.message_id
+        )
+
     user_states.pop(chat_id, None)
-    user_data.pop(chat_id, None)
 
 # ---------- STATISTIKA ----------
 
