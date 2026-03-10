@@ -69,11 +69,21 @@ class Database:
         """)
         # Kinolar jadvali
         self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS films (
-                code TEXT PRIMARY KEY,
-                file_id TEXT NOT NULL,
-                caption TEXT
-            )
+        CREATE TABLE IF NOT EXISTS films (
+            code TEXT PRIMARY KEY,
+            file_id TEXT NOT NULL,
+            caption TEXT
+        )
+        """)
+        
+        # Kino qismlari jadvali
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS film_episodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            film_code TEXT,
+            episode_number INTEGER,
+            file_id TEXT
+        )
         """)
         # Drama jadvallari
         self.cursor.execute("CREATE TABLE IF NOT EXISTS dramas (code TEXT PRIMARY KEY, caption TEXT, photo_id TEXT)")
@@ -163,10 +173,9 @@ class Database:
     def set_user_blocked(self, user_id, is_blocked):
         self.cursor.execute("UPDATE users SET is_blocked=? WHERE user_id=?", (is_blocked, user_id))
         self.conn.commit()
-
-    def get_all_users():
-        cursor.execute("SELECT user_id FROM users")
-        rows = cursor.fetchall()
+    def get_all_users(self):
+        self.cursor.execute("SELECT user_id FROM users")
+        rows = self.cursor.fetchall()
         return [row[0] for row in rows]
 
     def count_users(self):
@@ -342,23 +351,23 @@ def check_subscription_callback(call):
         else:
             send_main_menu(chat_id)
 
-
-
-# 1. Kanal sozlamasi (IDni kiritish shart, bot admin bo'lsa yuboradi)
-# Agar ID xato bo'lsa, konsolda xato chiqadi. 
-# Taxminiy ID: -1002244493395 (O'zingiznikiga almashtiring)
 CH_ID = -1003666920776
 
-# ===============================
-# 🎬 KINO QO'SHISH VA KANALGA YUBORISH
-# ===============================
 
+import telebot
+from telebot import types
+
+# CH_ID = -1003666920776  # Kanal ID si
+
+# ===============================
+# 🎬 ADMIN: KINO QO'SHISH (BOSQICHMA-BOSQICH)
+# ===============================
 @bot.message_handler(func=lambda message: message.text == "🎬 Kino qo'shish" and db.is_admin(message.from_user.id))
 def admin_add_film_start(message):
     chat_id = message.chat.id
     user_states[chat_id] = 'film_waiting_code'
     user_data[chat_id] = {}
-    bot.send_message(chat_id, "🆔 Kino uchun **kod** kiriting:", reply_markup=get_cancel_keyboard())
+    bot.send_message(chat_id, "🆔 Kino uchun **kod** kiriting:", reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'film_waiting_code')
 def admin_add_film_code(message):
@@ -367,9 +376,10 @@ def admin_add_film_code(message):
         user_states.pop(chat_id, None)
         return bot.send_message(chat_id, "✅ Bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
 
-    user_data[chat_id]['code'] = message.text.strip()
+    code = message.text.strip()
+    user_data[chat_id]['code'] = code
     user_states[chat_id] = 'film_waiting_name'
-    bot.send_message(chat_id, "🎬 Kino **NOMINI** kiriting:", reply_markup=get_cancel_keyboard())
+    bot.send_message(chat_id, "🎬 Kino **nomini** kiriting:", reply_markup=get_cancel_keyboard())
 
 @bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'film_waiting_name')
 def admin_add_film_name(message):
@@ -389,84 +399,126 @@ def admin_add_film_parts(message):
         user_states.pop(chat_id, None)
         return bot.send_message(chat_id, "✅ Bekor qilindi.", reply_markup=get_current_keyboard(chat_id))
 
-    try:
-        user_data[chat_id]['parts'] = int(message.text)
-        user_data[chat_id]['current'] = 1
-        user_states[chat_id] = 'film_waiting_video'
-        bot.send_message(chat_id, "🎬 1-qism videoni yuboring:", reply_markup=get_cancel_keyboard())
-    except:
-        bot.send_message(chat_id, "❌ Son kiriting!")
+    if not message.text.isdigit():
+        return bot.send_message(chat_id, "❌ Faqat raqam kiriting!")
 
+    user_data[chat_id]['parts'] = int(message.text)
+    user_data[chat_id]['current'] = 1
+    user_states[chat_id] = 'film_waiting_video'
+    bot.send_message(chat_id, f"🎬 {user_data[chat_id]['current']}-qism videoni yuboring:")
+
+# ===============================
+# 🎬 ADMIN: VIDEO QABUL QILISH VA KANALGA TASHASH
+# ===============================
 @bot.message_handler(content_types=['video'], func=lambda message: user_states.get(message.chat.id) == 'film_waiting_video')
 def admin_add_film_video(message):
     chat_id = message.chat.id
     data = user_data.get(chat_id)
     if not data: return
 
-    # 🔥 AVTO-CAPTION (Video tagiga tushadi)
-    qism_str = f"🎞 **Qism:** {data['current']}-qism" if data['parts'] > 1 else "🎞 **Qism:** To'liq film"
     caption = (
-        f"🆔 **Kino kodi:** {data['code']}\n"
-        f"🎬 **Nomi:** {data['name']}\n"
-        f"{qism_str}\n"
-        f"🇺🇿 **Tili:** O'zbek tilida\n\n"
-        f"🤖 **Botimiz:** @tarjimakinolarbizdabot"
+        f"🆔 <b>Kino kodi: {data['code']}</b>\n"
+        f"🎬 Nomi: {data['name']}\n"
+        f"🇺🇿 Tili: O'zbek tilida\n\n"
+        f"🤖 Bot: @tarjimakinolarbizdabot"
     )
 
-    # Bazaga saqlash
-    if data['parts'] == 1:
-        db.add_film(data['code'], message.video.file_id, caption)
-    else:
-        # Barcha qismlarni film_episodes ga saqlaymiz
-        db.cursor.execute(
-            "INSERT INTO film_episodes (film_code, episode_number, file_id) VALUES (?, ?, ?)",
-            (data['code'], data['current'], message.video.file_id)
-        )
-        db.conn.commit()
-    
-    # Keyingi qismni yuborish yoki tugatish
-    if data['current'] < data['parts']:
-        user_data[chat_id]['current'] += 1
-        bot.send_message(chat_id, f"🎬 {user_data[chat_id]['current']}-qismni yuboring:", reply_markup=get_cancel_keyboard())
-    else:
-        # ✅ HAMMASI TUGADI - KANALGA YUBORAMIZ
-        bot.send_message(chat_id, f"✅ Saqlandi! Kanalga mundarija yuborilmoqda...", reply_markup=get_current_keyboard(chat_id))
-    
-        # Kanalga yuboriladigan matn
-        channel_text = (
-            f"🆕 Yangi kino qo'shildi!\n\n"
-            f"🆔 Kino kodi: {data['code']}\n"
-            f"🎬 Nomi: {data['name']}\n"
-            f"🇺🇿 Tili: O'zbek tilida\n\n"
-            f"📥 Tomosha qilish uchun botga kiring:\n"
-            f"👉 @tarjimakinolarbizdabot"
-        )
-    
-        try:
-            bot.send_message(CH_ID, channel_text)
-        except Exception as e:
-            bot.send_message(chat_id, f"❌ Kanalga yuborishda xato (Bot adminmi?): {e}")
-    
-        user_states.pop(chat_id, None)
-        user_data.pop(chat_id, None)
-            
-        # Kanalga yuboriladigan matn (Video emas, faqat ma'lumot)
-        channel_text = (
-            f"🆕 **Yangi kino qo'shildi!**\n\n"
-            f"🆔 **Kino kodi:** {data['code']}\n"
-            f"🎬 **Nomi:** {data['name']}\n"
-            f"🇺🇿 **Tili:** O'zbek tilida\n\n"
-            f"📥 **Tomosha qilish uchun botga kiring:**\n"
-            f"👉 @tarjimakinolarbizdabot"
-        )
-        
-        try:
-            bot.send_message(CH_ID, channel_text)
-        except Exception as e:
-            bot.send_message(chat_id, f"❌ Kanalga yuborishda xato (Bot adminmi?): {e}")
+    try:
+        if data['parts'] == 1:
+            db.add_film(data['code'], message.video.file_id, caption)
+            bot.send_video(CH_ID, message.video.file_id, caption=caption, parse_mode="HTML")
+        else:
+            db.cursor.execute(
+                "INSERT INTO film_episodes (film_code, episode_number, file_id) VALUES (?, ?, ?)",
+                (data['code'], data['current'], message.video.file_id)
+            )
+            db.conn.commit()
 
-        user_states.pop(chat_id, None)
-        user_data.pop(chat_id, None)
+            if data['current'] == 1:
+                multi_caption = caption + f"\n🎞 Qismlar soni: {data['parts']} ta"
+                bot.send_message(CH_ID, multi_caption, parse_mode="HTML")
+
+        if data['current'] < data['parts']:
+            user_data[chat_id]['current'] += 1
+            bot.send_message(chat_id, f"✅ {data['current']}-qism olindi. Endi {data['current']+1}-qismni yuboring:")
+        else:
+            bot.send_message(chat_id, "✅ Hammasi kanalga joylandi!", reply_markup=get_current_keyboard(chat_id))
+            user_states.pop(chat_id, None)
+            user_data.pop(chat_id, None)
+
+    except Exception as e:
+        bot.send_message(chat_id, f"❌ Xato: {e}")
+
+# ===============================
+# 🔍 FOYDALANUVCHI: QIDIRUV (TAKRORLANISHSIZ)
+# ===============================
+@bot.message_handler(func=lambda message: message.text.isdigit())
+def search_film_handler(message):
+    code = message.text.strip()
+    chat_id = message.chat.id
+    is_admin = db.is_admin(message.from_user.id)
+    
+    # DISTINCT ishlatamizki, rasmdagi kabi bir xil qismlar chiqib ketmasin
+    db.cursor.execute("SELECT DISTINCT episode_number FROM film_episodes WHERE film_code=? ORDER BY episode_number", (code,))
+    episodes = db.cursor.fetchall()
+    
+    if episodes:
+        markup = types.InlineKeyboardMarkup(row_width=5)
+        buttons = []
+        text = f"🎬 <b>Kino kodi: {code}</b>\n\nQismlar ro'yxati: 👇"
+        
+        for ep in episodes:
+            buttons.append(types.InlineKeyboardButton(text=str(ep[0]), callback_data=f"film_{code}_{ep[0]}"))
+        
+        markup.add(*buttons)
+        
+        if is_admin:
+            markup.row(types.InlineKeyboardButton(text="🗑 Kinoni butkul o'chirish", callback_data=f"admin_del_{code}"))
+            
+        bot.send_message(chat_id, text, reply_markup=markup, parse_mode="HTML")
+    else:
+        film = db.get_film(code)
+        if film:
+            markup = types.InlineKeyboardMarkup()
+            if is_admin:
+                markup.add(types.InlineKeyboardButton(text="🗑 O'chirish", callback_data=f"admin_del_{code}"))
+            bot.send_video(chat_id, film[1], caption=film[2], reply_markup=markup, parse_mode="HTML")
+        else:
+            bot.send_message(chat_id, "❌ Bu kod bilan kino topilmadi.")
+
+# ===============================
+# 🔘 CALLBACK: VIDEO VA O'CHIRISH
+# ===============================
+@bot.callback_query_handler(func=lambda call: True)
+def callback_all(call):
+    # 1. Video yuborish
+    if call.data.startswith('film_'):
+        data = call.data.split('_')
+        code, ep_num = data[1], data[2]
+
+        db.cursor.execute("SELECT file_id FROM film_episodes WHERE film_code=? AND episode_number=?", (code, ep_num))
+        res = db.cursor.fetchone()
+        
+        if res:
+            caption = f"🆔 <b>Kino kodi: {code}</b>\n🎞 <b>Qism: {ep_num}</b>\n\n🤖 Bot: @tarjimakinolarbizdabot"
+            bot.send_video(call.message.chat.id, res[0], caption=caption, parse_mode="HTML")
+            bot.answer_callback_query(call.id)
+        else:
+            bot.answer_callback_query(call.id, "❌ Video topilmadi!")
+
+    # 2. Admin o'chirish
+    elif call.data.startswith('admin_del_'):
+        code = call.data.split('_')[2]
+        if not db.is_admin(call.from_user.id):
+            return bot.answer_callback_query(call.id, "Sizga mumkin emas!")
+
+        try:
+            db.cursor.execute("DELETE FROM films WHERE code=?", (code,))
+            db.cursor.execute("DELETE FROM film_episodes WHERE film_code=?", (code,))
+            db.conn.commit()
+            bot.edit_message_text(f"✅ Kod {code} bo'lgan barcha ma'lumotlar o'chirildi!", call.message.chat.id, call.message.message_id)
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"Xato: {e}")
     # ----------------- 5.2. ADMIN PANEL - DRAMA QO'SHISH -----------------
 user_states = {}
 user_data = {}
@@ -627,7 +679,7 @@ def add_drama_episode_invalid(message):
 # 🧸 MULTFILM QO'SHISH (KANALGA YUBORISH)
 # ===============================
 
-CH_ID = -1003605866510  # Kanal ID sini o'zingizga moslang
+CHA_ID = -1003605866510  # Kanal ID sini o'zingizga moslang
 
 # --- Multfilm qo'shish boshlanishi ---
 @bot.message_handler(func=lambda message: message.text == "🧸 Multfilm qo'shish" and db.is_admin(message.from_user.id))
@@ -755,9 +807,9 @@ def admin_get_video(message):
 
         try:
             if data["photo_id"]:
-                bot.send_photo(CH_ID, data["photo_id"], caption=channel_text, parse_mode="Markdown")
+                bot.send_photo(CHA_ID, data["photo_id"], caption=channel_text, parse_mode="Markdown")
             else:
-                bot.send_message(CH_ID, channel_text, parse_mode="Markdown")
+                bot.send_message(CHA_ID, channel_text, parse_mode="Markdown")
         except Exception as e:
             bot.send_message(chat_id, f"❌ Kanalga yuborishda xato (Bot adminmi?): {e}")
 
@@ -767,7 +819,7 @@ def admin_get_video(message):
 # 🎌 ANIME QO'SHISH (KANALGA YUBORISH)
 # ===============================
 
-CH_ID = -1003859167418  # O'zingizning kanal ID sini qo'ying
+CHAT_ID = -1003859167418  # O'zingizning kanal ID sini qo'ying
 
 # --- Anime qo'shish boshlanishi ---
 @bot.message_handler(func=lambda message: message.text == "🎌 Anime qo'shish" and db.is_admin(message.from_user.id))
@@ -895,9 +947,9 @@ def admin_get_anime_video(message):
 
         try:
             if data["photo_id"]:
-                bot.send_photo(CH_ID, data["photo_id"], caption=channel_text, parse_mode="Markdown")
+                bot.send_photo(CHAT_ID, data["photo_id"], caption=channel_text, parse_mode="Markdown")
             else:
-                bot.send_message(CH_ID, channel_text, parse_mode="Markdown")
+                bot.send_message(CHAT_ID, channel_text, parse_mode="Markdown")
         except Exception as e:
             bot.send_message(chat_id, f"❌ Kanalga yuborishda xato (Bot adminmi?): {e}")
 
