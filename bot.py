@@ -449,42 +449,48 @@ def admin_add_film_video(message):
     except Exception as e:
         bot.send_message(chat_id, f"❌ Xato: {e}")
 
-# ===============================
-# 🔍 FOYDALANUVCHI: QIDIRUV (TAKRORLANISHSIZ)
-# ===============================
-@bot.message_handler(func=lambda message: message.text.isdigit())
+@bot.message_handler(func=lambda message: True)  # har qanday matnni qabul qiladi
 def search_film_handler(message):
-    code = message.text.strip()
+    query = message.text.strip().lower()
     chat_id = message.chat.id
-    is_admin = db.is_admin(message.from_user.id)
-    
-    # DISTINCT ishlatamizki, rasmdagi kabi bir xil qismlar chiqib ketmasin
-    db.cursor.execute("SELECT DISTINCT episode_number FROM film_episodes WHERE film_code=? ORDER BY episode_number", (code,))
+
+    # 1️⃣ Avval episode bor-yo'qligini tekshiramiz (multi qismli)
+    db.cursor.execute(
+        "SELECT DISTINCT episode_number FROM film_episodes fe "
+        "JOIN films f ON f.code = fe.film_code "
+        "WHERE LOWER(f.name) LIKE ? ORDER BY episode_number",
+        (f"%{query}%",)
+    )
     episodes = db.cursor.fetchall()
-    
+
     if episodes:
-        markup = types.InlineKeyboardMarkup(row_width=5)
-        buttons = []
-        text = f"🎬 <b>Kino kodi: {code}</b>\n\nQismlar ro'yxati: 👇"
-        
-        for ep in episodes:
-            buttons.append(types.InlineKeyboardButton(text=str(ep[0]), callback_data=f"film_{code}_{ep[0]}"))
-        
-        markup.add(*buttons)
-        
-        if is_admin:
-            markup.row(types.InlineKeyboardButton(text="🗑 Kinoni butkul o'chirish", callback_data=f"admin_del_{code}"))
-            
-        bot.send_message(chat_id, text, reply_markup=markup, parse_mode="HTML")
+        # Agar multi qismli kino bo'lsa, faqat birinchi qismini yuborish
+        first_episode = episodes[0][0]
+        db.cursor.execute(
+            "SELECT fe.file_id, f.name FROM film_episodes fe "
+            "JOIN films f ON f.code = fe.film_code "
+            "WHERE fe.episode_number=? AND LOWER(f.name) LIKE ? LIMIT 1",
+            (first_episode, f"%{query}%")
+        )
+        res = db.cursor.fetchone()
+        if res:
+            file_id, film_name = res
+            caption = f"🎬 {film_name}\n🎞 Qism: {first_episode}\n🤖 Bot: @tarjimakinolarbizdabot"
+            bot.send_video(chat_id, file_id, caption=caption, parse_mode="HTML")
+            return
+
+    # 2️⃣ Agar faqat bitta film bo'lsa (multi qismsiz)
+    db.cursor.execute(
+        "SELECT file_id, name FROM films WHERE LOWER(name) LIKE ? LIMIT 1",
+        (f"%{query}%",)
+    )
+    film = db.cursor.fetchone()
+    if film:
+        file_id, film_name = film
+        caption = f"🎬 {film_name}\n🤖 Bot: @tarjimakinolarbizdabot"
+        bot.send_video(chat_id, file_id, caption=caption, parse_mode="HTML")
     else:
-        film = db.get_film(code)
-        if film:
-            markup = types.InlineKeyboardMarkup()
-            if is_admin:
-                markup.add(types.InlineKeyboardButton(text="🗑 O'chirish", callback_data=f"admin_del_{code}"))
-            bot.send_video(chat_id, film[1], caption=film[2], reply_markup=markup, parse_mode="HTML")
-        else:
-            bot.send_message(chat_id, "❌ Bu kod bilan kino topilmadi.")
+        bot.send_message(chat_id, "❌ Bu nom bilan kino topilmadi.")
 
 # ===============================
 # 🔘 CALLBACK: VIDEO VA O'CHIRISH
